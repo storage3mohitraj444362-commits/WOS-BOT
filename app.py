@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 # Ensure repository root is on sys.path so modules like `db.mongo_adapters` can be imported
