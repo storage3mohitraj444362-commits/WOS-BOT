@@ -38,10 +38,12 @@ class GiftCodeAPI:
         if self.mongo_enabled:
             # Import MongoDB adapter
             try:
-                from db.mongo_adapters import GiftCodesAdapter
+                from db.mongo_adapters import GiftCodesAdapter, AdminsAdapter, AllianceSettingsAdapter
                 self.gift_codes_adapter = GiftCodesAdapter
+                self.admins_adapter = AdminsAdapter
+                self.alliance_settings_adapter = AllianceSettingsAdapter
                 self.logger = logging.getLogger("gift_operationsapi")
-                self.logger.info("[GIFTCODES] ✅ MongoDB enabled - Using GiftCodesAdapter for all operations")
+                self.logger.info("[GIFTCODES] ✅ MongoDB enabled - Using mongo adapters for all operations")
             except ImportError as e:
                 self.logger = logging.getLogger("gift_operationsapi")
                 self.logger.error(f"[GIFTCODES] Failed to import GiftCodesAdapter: {e}")
@@ -368,8 +370,11 @@ class GiftCodeAPI:
                                                     valid_codes_count += 1
                                                     self.logger.info(f"API code '{code}' validated successfully")
                                                     # Check for auto-use
-                                                    self.cursor.execute("SELECT alliance_id FROM giftcodecontrol WHERE status = 1")
-                                                    auto_alliances = self.cursor.fetchall() or []
+                                                    if self.mongo_enabled:
+                                                        auto_alliances = [(aid,) for aid in self.alliance_settings_adapter.get_auto_redeem_alliances()]
+                                                    else:
+                                                        self.cursor.execute("SELECT alliance_id FROM giftcodecontrol WHERE status = 1")
+                                                        auto_alliances = self.cursor.fetchall() or []
                                                     validation_status = "✅ Validated"
                                                 elif is_valid is False:
                                                     invalid_codes_count += 1
@@ -385,8 +390,11 @@ class GiftCodeAPI:
                                                 validation_status = "⚠️ Validation unavailable"
                                                 auto_alliances = []
 
-                                            self.settings_cursor.execute("SELECT id FROM admin WHERE is_initial = 1")
-                                            admin_ids = self.settings_cursor.fetchall()
+                                            if self.mongo_enabled:
+                                                admin_ids = [(aid,) for aid in self.admins_adapter.get_initial_admins()]
+                                            else:
+                                                self.settings_cursor.execute("SELECT id FROM admin WHERE is_initial = 1")
+                                                admin_ids = self.settings_cursor.fetchall()
                                             if admin_ids:
                                                 admin_embed = discord.Embed(
                                                     title="🎁 New Gift Code Found!",

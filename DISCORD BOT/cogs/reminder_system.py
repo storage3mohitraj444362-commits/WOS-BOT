@@ -74,6 +74,28 @@ def get_user_timezone(user_id: Union[int, str]) -> Optional[str]:
         return None
 
 
+async def get_user_timezone_async(user_id: Union[int, str]) -> Optional[str]:
+    """Asynchronous version of get_user_timezone"""
+    try:
+        # If Mongo is enabled, use adapter directly for single lookup
+        if mongo_enabled() and UserTimezonesAdapter is not None:
+            try:
+                return await UserTimezonesAdapter.get_async(str(user_id))
+            except Exception:
+                pass
+        
+        # Fallback to loading all (which might be slow, but better than nothing)
+        # In a real async environment, we'd avoid the lock and just read from Mongo
+        # but for JSON fallback we might still need it or a thread-safe way.
+        # However, if we are in Mongo mode (most likely on Render), get_async will return.
+        
+        # Simple fallback for now:
+        data = _load_user_timezones() # This is sync, but we hope Mongo is up
+        return data.get(str(user_id))
+    except Exception:
+        return None
+
+
 def set_user_timezone(user_id: Union[int, str], tz_abbr: str) -> bool:
     try:
         with _user_tz_lock:

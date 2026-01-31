@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import uuid
 
-from .mongo_client_wrapper import get_mongo_client_sync
+from .mongo_client_wrapper import get_mongo_client_sync, get_mongo_client
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,15 @@ def _get_db():
     if not uri:
         raise ValueError('MONGO_URI not set')
     client = get_mongo_client_sync(uri)
+    db_name = os.getenv('MONGO_DB_NAME', 'discord_bot')
+    return client[db_name]
+
+
+async def _get_db_async():
+    uri = os.getenv('MONGO_URI')
+    if not uri:
+        raise ValueError('MONGO_URI not set')
+    client = await get_mongo_client(uri)
     db_name = os.getenv('MONGO_DB_NAME', 'discord_bot')
     return client[db_name]
 
@@ -63,6 +72,31 @@ class UserTimezonesAdapter:
             return True
         except Exception as e:
             logger.error(f'Failed to set timezone for {user_id}: {e}')
+            return False
+
+    @staticmethod
+    async def get_async(user_id: str) -> Optional[str]:
+        try:
+            db = await _get_db_async()
+            d = await db[UserTimezonesAdapter.COLL].find_one({'_id': str(user_id)})
+            return d.get('timezone') if d else None
+        except Exception as e:
+            logger.error(f'Failed to get timezone (async) for {user_id}: {e}')
+            return None
+
+    @staticmethod
+    async def set_async(user_id: str, tz_abbr: str) -> bool:
+        try:
+            db = await _get_db_async()
+            now = datetime.utcnow().isoformat()
+            await db[UserTimezonesAdapter.COLL].update_one(
+                {'_id': str(user_id)},
+                {'$set': {'timezone': tz_abbr.lower(), 'updated_at': now}, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f'Failed to set timezone (async) for {user_id}: {e}')
             return False
 
 
@@ -228,6 +262,41 @@ class AllianceMembersAdapter:
             return False
 
     @staticmethod
+    async def upsert_member_async(fid: str, data: Dict[str, Any]) -> bool:
+        """Insert or update a single alliance member asynchronously"""
+        try:
+            db = await _get_db_async()
+            now = datetime.utcnow().isoformat()
+            
+            data_copy = data.copy()
+            data_copy['updated_at'] = now
+            data_copy.pop('created_at', None)
+            
+            await db[AllianceMembersAdapter.COLL].update_one(
+                {'_id': str(fid)},
+                {'$set': data_copy, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f'Failed to upsert alliance member (async) {fid} in Mongo: {e}')
+            return False
+
+    @staticmethod
+    async def get_all_members_async() -> list:
+        """Get all alliance members asynchronously"""
+        try:
+            db = await _get_db_async()
+            cursor = db[AllianceMembersAdapter.COLL].find({})
+            docs = await cursor.to_list(length=None)
+            for doc in docs:
+                doc.pop('_id', None)
+            return docs
+        except Exception as e:
+            logger.error(f'Failed to get all alliance members (async) from Mongo: {e}')
+            return []
+
+    @staticmethod
     def get_member(fid: str) -> Optional[Dict[str, Any]]:
         """Get a single alliance member"""
         try:
@@ -238,6 +307,19 @@ class AllianceMembersAdapter:
             return doc
         except Exception as e:
             logger.error(f'Failed to get alliance member {fid} from Mongo: {e}')
+            return None
+
+    @staticmethod
+    async def get_member_async(fid: str) -> Optional[Dict[str, Any]]:
+        """Get a single alliance member asynchronously"""
+        try:
+            db = await _get_db_async()
+            doc = await db[AllianceMembersAdapter.COLL].find_one({'_id': str(fid)})
+            if doc:
+                doc.pop('_id', None)
+            return doc
+        except Exception as e:
+            logger.error(f'Failed to get alliance member (async) {fid} from Mongo: {e}')
             return None
 
     @staticmethod
@@ -308,6 +390,22 @@ class AllianceMetadataAdapter:
         except Exception as e:
             logger.error(f'Failed to get alliance metadata {key}: {e}')
             return None
+
+    @staticmethod
+    async def set_metadata_async(key: str, value: Any) -> bool:
+        """Set alliance metadata asynchronously"""
+        try:
+            db = await _get_db_async()
+            now = datetime.utcnow().isoformat()
+            await db[AllianceMetadataAdapter.COLL].update_one(
+                {'_id': str(key)},
+                {'$set': {'value': value, 'updated_at': now}, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f'Failed to set alliance metadata (async) {key}: {e}')
+            return False
 
 
 class GiftCodesAdapter:
@@ -434,6 +532,25 @@ class GiftCodesAdapter:
             return result.modified_count > 0 or result.matched_count > 0
         except Exception as e:
             logger.error(f'Failed to mark code {code} as processed: {e}')
+            return False
+
+    @staticmethod
+    async def mark_code_processed_async(code: str) -> bool:
+        """Mark a gift code as processed for auto-redeem asynchronously"""
+        try:
+            db = await _get_db_async()
+            result = await db[GiftCodesAdapter.COLL].update_one(
+                {'_id': code},
+                {
+                    '$set': {
+                        'auto_redeem_processed': True,
+                        'updated_at': datetime.utcnow().isoformat()
+                    }
+                }
+            )
+            return result.modified_count > 0 or result.matched_count > 0
+        except Exception as e:
+            logger.error(f'Failed to mark code (async) {code} as processed: {e}')
             return False
 
 
@@ -793,6 +910,15 @@ class AdminsAdapter:
         except Exception:
             return False
 
+    @staticmethod
+    def get_initial_admins() -> List[int]:
+        try:
+            db = _get_db()
+            docs = list(db[AdminsAdapter.COLL].find({'is_initial': 1}))
+            return [int(d['_id']) for d in docs]
+        except Exception:
+            return []
+
 class AlliancesAdapter:
     COLL = 'alliances'
 
@@ -815,11 +941,30 @@ class AlliancesAdapter:
             return None
 
     @staticmethod
-    def upsert(alliance_id: int, name: str, discord_server_id: int) -> bool:
+    def delete(alliance_id: int) -> bool:
         try:
             db = _get_db()
+            res = db[AlliancesAdapter.COLL].delete_one({'_id': str(alliance_id)})
+            return res.deleted_count > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    async def get_all_async() -> list:
+        try:
+            db = await _get_db_async()
+            cursor = db[AlliancesAdapter.COLL].find({})
+            docs = await cursor.to_list(length=None)
+            return [{'alliance_id': int(d.get('alliance_id')), 'name': d.get('name'), 'discord_server_id': int(d.get('discord_server_id', 0))} for d in docs]
+        except Exception:
+            return []
+
+    @staticmethod
+    async def upsert_async(alliance_id: int, name: str, discord_server_id: int) -> bool:
+        try:
+            db = await _get_db_async()
             now = datetime.utcnow().isoformat()
-            db[AlliancesAdapter.COLL].update_one(
+            await db[AlliancesAdapter.COLL].update_one(
                 {'_id': str(alliance_id)},
                 {'$set': {'alliance_id': int(alliance_id), 'name': name, 'discord_server_id': int(discord_server_id), 'updated_at': now}, '$setOnInsert': {'created_at': now}},
                 upsert=True
@@ -886,6 +1031,15 @@ class AllianceSettingsAdapter:
         except Exception:
             return False
 
+    @staticmethod
+    def get_auto_redeem_alliances() -> List[int]:
+        try:
+            db = _get_db()
+            docs = list(db[AllianceSettingsAdapter.COLL].find({'giftcodecontrol': 1}))
+            return [int(d['_id']) for d in docs]
+        except Exception:
+            return []
+
 
 class FurnaceHistoryAdapter:
     COLLECTION = 'furnace_history'
@@ -904,6 +1058,23 @@ class FurnaceHistoryAdapter:
             return True
         except Exception as e:
             logging.error(f"Error inserting furnace history: {e}")
+            return False
+
+    @staticmethod
+    async def insert_async(data: Dict[str, Any]) -> bool:
+        """Insert a single furnace history record asynchronously"""
+        try:
+            db = await _get_db_async()
+            if db is None:
+                return False
+            
+            if "change_date" not in data:
+                data["change_date"] = datetime.utcnow()
+                
+            await db[FurnaceHistoryAdapter.COLLECTION].insert_one(data)
+            return True
+        except Exception as e:
+            logging.error(f"Error inserting furnace history (async): {e}")
             return False
 
     @staticmethod
@@ -966,6 +1137,23 @@ class AllianceMonitoringAdapter:
             } for d in docs]
         except Exception as e:
             logger.error(f"Error getting alliance monitors from Mongo: {e}")
+            return []
+
+    @staticmethod
+    async def get_all_monitors_async() -> list:
+        try:
+            db = await _get_db_async()
+            cursor = db[AllianceMonitoringAdapter.COLL].find({'enabled': 1})
+            docs = await cursor.to_list(length=None)
+            return [{
+                'guild_id': int(d.get('guild_id')),
+                'alliance_id': int(d.get('alliance_id')),
+                'channel_id': int(d.get('channel_id')),
+                'enabled': int(d.get('enabled', 1)),
+                'check_interval': int(d.get('check_interval', 240))
+            } for d in docs]
+        except Exception as e:
+            logger.error(f"Error getting alliance monitors (async) from Mongo: {e}")
             return []
 
     @staticmethod
@@ -1118,6 +1306,19 @@ class ServerAllianceAdapter:
             return None
         except Exception as e:
             logger.error(f'Failed to get password for server {guild_id}: {e}')
+            return None
+
+    @staticmethod
+    async def get_password_async(guild_id: int) -> Optional[str]:
+        """Get member list password for a Discord server asynchronously"""
+        try:
+            db = await _get_db_async()
+            doc = await db[ServerAllianceAdapter.COLL].find_one({'_id': str(guild_id)})
+            if doc:
+                return doc.get('member_list_password')
+            return None
+        except Exception as e:
+            logger.error(f'Failed to get password (async) for server {guild_id}: {e}')
             return None
 
     @staticmethod

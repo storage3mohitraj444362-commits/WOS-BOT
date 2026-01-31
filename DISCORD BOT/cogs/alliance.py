@@ -29,6 +29,8 @@ except Exception as import_error:
         @staticmethod
         def get_all(): return []
         @staticmethod
+        async def get_all_async(): return []
+        @staticmethod
         def get(alliance_id): return None
     
     class AllianceSettingsAdapter:
@@ -38,6 +40,28 @@ except Exception as import_error:
     class AllianceMembersAdapter:
         @staticmethod
         def get_all_members(): return []
+        @staticmethod
+        async def get_all_members_async(): return []
+        @staticmethod
+        def get_member(fid): return None
+        @staticmethod
+        async def get_member_async(fid): return None
+        @staticmethod
+        def upsert_member(fid, data): return False
+        @staticmethod
+        async def upsert_member_async(fid, data): return False
+
+    class AllianceMonitoringAdapter:
+        @staticmethod
+        def get_all_monitors(): return []
+        @staticmethod
+        async def get_all_monitors_async(): return []
+
+    class FurnaceHistoryAdapter:
+        @staticmethod
+        def insert(data): return False
+        @staticmethod
+        async def insert_async(data): return False
 
 
 # Import database utilities for consistent path handling
@@ -2317,12 +2341,12 @@ class Alliance(commands.Cog):
         # Removed custom emojis as per request
         return ""
     
-    def _get_monitoring_members(self, alliance_id: int) -> list:
+    async def _get_monitoring_members(self, alliance_id: int) -> list:
         """Get all members of an alliance from database"""
         members = []
         try:
             if mongo_enabled() and AllianceMembersAdapter is not None:
-                docs = AllianceMembersAdapter.get_all_members() or []
+                docs = await AllianceMembersAdapter.get_all_members_async() or []
                 res = []
                 for d in docs:
                     try:
@@ -2353,7 +2377,7 @@ class Alliance(commands.Cog):
         """Get all alliances that are being monitored"""
         try:
             if mongo_enabled():
-                return AllianceMonitoringAdapter.get_all_monitors()
+                return await AllianceMonitoringAdapter.get_all_monitors_async()
             
             with get_db_connection('settings.sqlite') as conn:
                 cursor = conn.cursor()
@@ -2397,7 +2421,7 @@ class Alliance(commands.Cog):
                 self.log_message(f"Error getting alliance name: {e}")
             
             # Get current members from database
-            current_members = self._get_monitoring_members(alliance_id)
+            current_members = await self._get_monitoring_members(alliance_id)
             
             if not current_members:
                 self.log_message(f"No members found for alliance {alliance_id}")
@@ -2447,7 +2471,7 @@ class Alliance(commands.Cog):
                     if mongo_enabled() and AllianceMembersAdapter is not None:
                         # MongoDB Logic
                         try:
-                            doc = AllianceMembersAdapter.get_member(str(fid)) or {}
+                            doc = await AllianceMembersAdapter.get_member_async(str(fid)) or {}
                             
                             old_nickname = doc.get('nickname') or doc.get('name')
                             old_furnace_lv = int(doc.get('furnace_lv') or doc.get('furnaceLevel') or doc.get('furnace', 0) or 0)
@@ -2513,7 +2537,7 @@ class Alliance(commands.Cog):
                             doc['avatar_image'] = api_data.get('avatar_image', '')
                             doc['last_checked'] = datetime.utcnow()
                             
-                            AllianceMembersAdapter.upsert_member(str(fid), doc)
+                            await AllianceMembersAdapter.upsert_member_async(str(fid), doc)
                             
                         except Exception as e:
                             self.log_message(f"Error processing MongoDB member update for {fid}: {e}")
@@ -2610,7 +2634,7 @@ class Alliance(commands.Cog):
                 if change['type'] == 'furnace_change':
                     try:
                         if mongo_enabled():
-                            FurnaceHistoryAdapter.insert({
+                            await FurnaceHistoryAdapter.insert_async({
                                 'fid': str(change['fid']),
                                 'nickname': change['nickname'],
                                 'alliance_id': alliance_id,

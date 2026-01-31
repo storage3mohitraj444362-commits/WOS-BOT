@@ -8,6 +8,7 @@ import time
 import logging
 import logging.handlers
 import json
+import asyncio
 
 try:
     import onnxruntime as ort
@@ -21,6 +22,14 @@ except ImportError:
     ONNX_AVAILABLE = False
 
 class GiftCaptchaSolver:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(GiftCaptchaSolver, cls).__new__(cls)
+            cls._instance._initialized_singleton = False
+        return cls._instance
+
     def __init__(self, save_images=0):
         """
         Initialize the ONNX captcha solver.
@@ -29,10 +38,14 @@ class GiftCaptchaSolver:
             save_images (int): Image saving mode (0=None, 1=Failed, 2=Success, 3=All).
                                Note: Saving logic is primarily handled in gift_operations.py now.
         """
+        if self._initialized_singleton:
+            return
+            
         self.save_images_mode = save_images
         self.onnx_session = None
         self.model_metadata = None
         self.is_initialized = False
+        self._initialized_singleton = True
 
         # Logger setup
         self.logger = logging.getLogger("gift_solver")
@@ -211,9 +224,9 @@ class GiftCaptchaSolver:
                 self.logger.error(f"[Solver] FID {fid}, Attempt {attempt+1}: Failed to preprocess image")
                 return None, False, "ONNX", 0.0, None
 
-            # Run inference
+            # Run inference in a separate thread to avoid blocking the event loop
             input_name = self.onnx_session.get_inputs()[0].name
-            outputs = self.onnx_session.run(None, {input_name: input_data})
+            outputs = await asyncio.to_thread(self.onnx_session.run, None, {input_name: input_data})
 
             # Decode predictions
             idx_to_char = self.model_metadata['idx_to_char']

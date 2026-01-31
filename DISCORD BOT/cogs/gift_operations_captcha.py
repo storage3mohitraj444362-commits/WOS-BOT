@@ -3,16 +3,18 @@ import json
 import os
 import time
 import random
-import requests
-from requests.adapters import HTTPAdapter
-
+import aiohttp
 
 async def fetch_captcha(gift_ops, player_id, session=None):
     """Fetch a captcha image for a player ID using gift_ops context."""
+    # Note: We expect an aiohttp.ClientSession to be passed in
     if session is None:
-        session = requests.Session()
-        session.mount("https://", HTTPAdapter(max_retries=gift_ops.retry_config))
+        # Fallback if no session provided (not ideal, but for compatibility)
+        async with aiohttp.ClientSession() as temp_session:
+            return await _fetch_with_session(gift_ops, player_id, temp_session)
+    return await _fetch_with_session(gift_ops, player_id, session)
 
+async def _fetch_with_session(gift_ops, player_id, session):
     headers = {
         "accept": "application/json, text/plain, */*",
         "content-type": "application/x-www-form-urlencoded",
@@ -27,21 +29,21 @@ async def fetch_captcha(gift_ops, player_id, session=None):
     data = gift_ops.encode_data(data_to_encode)
 
     try:
-        response = session.post(
+        async with session.post(
             gift_ops.wos_captcha_url,
             headers=headers,
             data=data,
-        )
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as response:
+            if response.status == 200:
+                captcha_data = await response.json()
+                if captcha_data.get("code") == 1 and captcha_data.get("msg") == "CAPTCHA GET TOO FREQUENT.":
+                    return None, "CAPTCHA_TOO_FREQUENT"
 
-        if response.status_code == 200:
-            captcha_data = response.json()
-            if captcha_data.get("code") == 1 and captcha_data.get("msg") == "CAPTCHA GET TOO FREQUENT.":
-                return None, "CAPTCHA_TOO_FREQUENT"
+                if "data" in captcha_data and "img" in captcha_data["data"]:
+                    return captcha_data["data"]["img"], None
 
-            if "data" in captcha_data and "img" in captcha_data["data"]:
-                return captcha_data["data"]["img"], None
-
-        return None, "CAPTCHA_FETCH_ERROR"
+            return None, "CAPTCHA_FETCH_ERROR"
     except Exception as e:
         gift_ops.logger.exception(f"Error fetching captcha: {e}")
         return None, f"CAPTCHA_EXCEPTION: {str(e)}"
@@ -105,21 +107,29 @@ async def attempt_gift_code_with_api(gift_ops, player_id, giftcode, session):
         gift_ops.processing_stats["captcha_submissions"] += 1
 
         # Submit to gift code API
-        response_giftcode = session.post(gift_ops.wos_giftcode_url, data=data)
-
-        # Log the redemption attempt
-        log_entry_redeem = f"\n{time.time()} API REQ - Gift Code Redeem\nFID:{player_id}, Code:{giftcode}, Captcha:{captcha_code}\n"
         try:
-            response_json_redeem = response_giftcode.json()
-            log_entry_redeem += f"Resp Code: {response_giftcode.status_code}\nResponse JSON:\n{json.dumps(response_json_redeem, indent=2)}\n"
-        except json.JSONDecodeError:
-            response_json_redeem = {}
-            log_entry_redeem += f"Resp Code: {response_giftcode.status_code}\nResponse Text (Not JSON): {response_giftcode.text[:500]}...\n"
-        log_entry_redeem += "-" * 50 + "\n"
-        try:
-            gift_ops.giftlog.info(log_entry_redeem.strip())
-        except Exception:
-            pass
+            async with session.post(
+                gift_ops.wos_giftcode_url,
+                data=data,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as response_giftcode:
+                # Log the redemption attempt
+                log_entry_redeem = f"\n{time.time()} API REQ - Gift Code Redeem\nFID:{player_id}, Code:{giftcode}, Captcha:{captcha_code}\n"
+                try:
+                    response_json_redeem = await response_giftcode.json()
+                    log_entry_redeem += f"Resp Code: {response_giftcode.status}\nResponse JSON:\n{json.dumps(response_json_redeem, indent=2)}\n"
+                except Exception:
+                    response_json_redeem = {}
+                    resp_text = await response_giftcode.text()
+                    log_entry_redeem += f"Resp Code: {response_giftcode.status}\nResponse Text (Not JSON): {resp_text[:500]}...\n"
+                log_entry_redeem += "-" * 50 + "\n"
+                try:
+                    gift_ops.giftlog.info(log_entry_redeem.strip())
+                except Exception:
+                    pass
+        except Exception as e:
+            gift_ops.logger.error(f"Error submitting gift code for FID {player_id}: {e}")
+            return "SUBMIT_ERROR", image_bytes, captcha_code, method
 
         # Parse response
         msg = response_json_redeem.get("msg", "Unknown Error").strip('.')

@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import aiohttp
 import hashlib
 import json
 from datetime import datetime
@@ -173,13 +171,6 @@ class GiftOperations(commands.Cog):
         self.wos_giftcode_redemption_url = "https://wos-giftcode.centurygame.com"
         self.wos_encrypt_key = "tB87#kPtkxqOS2"
 
-        # Retry Configuration for Requests
-        self.retry_config = Retry(
-            total=10,
-            backoff_factor=0.5,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["POST", "GET"]
-        )
 
         # Initialization of Locks and Cooldowns
         self.captcha_solver = None
@@ -205,6 +196,18 @@ class GiftOperations(commands.Cog):
         "total_fids_processed": 0,   # Count of completed claim_giftcode calls
         "total_processing_time": 0.0 # Sum of durations for completed calls
         }
+        self.session = None
+
+    async def cog_load(self):
+        """Initialize aiohttp session when cog is loaded"""
+        self.session = aiohttp.ClientSession()
+        self.logger.info("GiftOperations: Shared aiohttp session initialized.")
+
+    async def cog_unload(self):
+        """Close aiohttp session when cog is unloaded"""
+        if self.session:
+            await self.session.close()
+            self.logger.info("GiftOperations: Shared aiohttp session closed.")
 
     def check_and_fix_schema(self):
         """
@@ -1148,9 +1151,10 @@ class GiftOperations(commands.Cog):
         except Exception as e:
             self.logger.exception(f"GiftOps: Error in batch_process_alliance_results: {e}")
 
-    def get_stove_info_wos(self, player_id):
-        session = requests.Session()
-        session.mount("https://", HTTPAdapter(max_retries=self.retry_config))
+    async def get_stove_info_wos(self, player_id, session=None):
+        """Asynchronously get stove info from WOS API."""
+        if session is None:
+            session = self.session if self.session else aiohttp.ClientSession()
 
         headers = {
             "accept": "application/json, text/plain, */*",
@@ -1164,12 +1168,22 @@ class GiftOperations(commands.Cog):
         }
         data = self.encode_data(data_to_encode)
         
-        response_stove_info = session.post(
-            self.wos_player_info_url,
-            headers=headers,
-            data=data,
-        )
-        return session, response_stove_info
+        try:
+            async with session.post(
+                self.wos_player_info_url,
+                headers=headers,
+                data=data,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response_stove_info:
+                # We need to read the JSON now because the session might close or be reused
+                try:
+                    resp_json = await response_stove_info.json()
+                except Exception:
+                    resp_json = {}
+                return session, response_stove_info, resp_json
+        except Exception as e:
+            self.logger.error(f"Error in get_stove_info_wos for {player_id}: {e}")
+            raise e
 
     async def attempt_gift_code_with_api(self, player_id, giftcode, session):
         """Delegate to captcha helper module."""
@@ -1211,20 +1225,13 @@ class GiftOperations(commands.Cog):
             self.captcha_solver.reset_run_stats()
             
             # Get player session
-            session, response_stove_info = self.get_stove_info_wos(player_id=player_id)
-            log_entry_player = f"\n{datetime.now()} API REQUEST - Player Info\nPlayer ID: {player_id}\n"
-            try:
-                response_json_player = response_stove_info.json()
-                log_entry_player += f"Response Code: {response_stove_info.status_code}\nResponse JSON:\n{json.dumps(response_json_player, indent=2)}\n"
-            except json.JSONDecodeError:
-                log_entry_player += f"Response Code: {response_stove_info.status_code}\nResponse Text (Not JSON): {response_stove_info.text[:500]}...\n"
+            session, response_stove_info, player_info_json = await self.get_stove_info_wos(player_id=player_id)
+            log_entry_player = f"\n{datetime.now()} API REQUEST - Player Info (Async)\nPlayer ID: {player_id}\n"
+            
+            log_entry_player += f"Response Code: {response_stove_info.status}\nResponse JSON:\n{json.dumps(player_info_json, indent=2)}\n"
             log_entry_player += "-" * 50 + "\n"
             self.giftlog.info(log_entry_player.strip())
 
-            try:
-                player_info_json = response_stove_info.json()
-            except json.JSONDecodeError:
-                player_info_json = {}
             login_successful = player_info_json.get("msg") == "success"
 
             if not login_successful:

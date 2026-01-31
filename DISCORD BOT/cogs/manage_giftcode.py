@@ -182,13 +182,24 @@ class ManageGiftCode(commands.Cog):
         # Stop signals for auto-redeem
         self.stop_signals = {}  # {guild_id: boolean}
         
+        self.session = None
 
-        
-        
-        self.setup_database()
-        
-        # Start the API check task
-        self.api_check_task.start()
+    async def cog_load(self):
+        """Initialize aiohttp session when cog is loaded"""
+        self.session = aiohttp.ClientSession()
+        self.logger.info("ManageGiftCode: Shared aiohttp session initialized.")
+
+    async def cog_unload(self):
+        """Clean up when cog is unloaded"""
+        self.api_check_task.cancel()
+        if self.session:
+            await self.session.close()
+            self.logger.info("ManageGiftCode: Shared aiohttp session closed.")
+        try:
+            self.giftcode_db.close()
+            self.settings_db.close()
+        except:
+            pass
     
     def setup_database(self):
         """Initialize gift code database tables"""
@@ -608,11 +619,10 @@ class ManageGiftCode(commands.Cog):
                     session_id = await self.session_pool.get_available_session()
                     
                     # Get player session
-                    session, response = await self.get_stove_info_wos(player_id=fid)
+                    session, response, player_info = await self.get_stove_info_wos(player_id=fid)
                     
                     # Check if login successful
                     try:
-                        player_info = response.json()
                         msg = player_info.get("msg", "NO_MSG")
                         
                         if msg == "success":  # Player info API returns lowercase success
@@ -625,7 +635,8 @@ class ManageGiftCode(commands.Cog):
                             await asyncio.sleep(retry_delay)
                     except Exception as json_err:
                         # Check if HTML error page (rate limited)
-                        if response.text.strip().startswith('<!DOCTYPE') or response.text.strip().startswith('<html'):
+                        resp_text = await response.text()
+                        if resp_text.strip().startswith('<!DOCTYPE') or resp_text.strip().startswith('<html'):
                             self.logger.warning(f"Login rate limited for {nickname} (FID: {fid}), session {session_id}, attempt {login_attempt}")
                             if session_id is not None:
                                 await self.session_pool.mark_rate_limited(session_id)
@@ -665,9 +676,8 @@ class ManageGiftCode(commands.Cog):
                         self.logger.warning(f"⚠️ CAPTCHA fetch failed for {nickname}, might be session issue, re-logging in...")
                         
                         # Re-establish login
-                        session, response = await self.get_stove_info_wos(player_id=fid)
+                        session, response, player_info = await self.get_stove_info_wos(player_id=fid)
                         try:
-                            player_info = response.json()
                             if player_info.get("msg") == "success":
                                 self.logger.info(f"✅ Re-login successful for {nickname}")
                                 retry_delay = min(RETRY_DELAY_BASE * redemption_attempt, MAX_RETRY_DELAY)
@@ -1280,39 +1290,36 @@ class ManageGiftCode(commands.Cog):
         
         return "MAX_ATTEMPTS_REACHED", None, None, None
     
-    async def get_stove_info_wos(self, player_id):
-        """Get player session for WOS API calls"""
-        import requests
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        import time
+    async def get_stove_info_wos(self, player_id, session=None):
+        """Asynchronously get player info and establish session for WOS API calls"""
+        if session is None:
+            session = self.session if self.session else aiohttp.ClientSession()
         
-        # Run session creation in thread pool to avoid blocking
-        def _create_session():
-            # Create session with retry strategy
-            session = requests.Session()
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=0.5,
-                status_forcelist=[429, 500, 502, 503, 504]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-            
-            # Get player info to establish session
-            data_to_encode = {
-                "fid": str(player_id),
-                "time": str(int(time.time() * 1000))
-            }
-            data = self.encode_data(data_to_encode)
-            
-            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-            response = session.post(self.wos_player_info_url, headers=headers, data=data, timeout=10)
-            
-            return session, response
+        # Get player info to establish session
+        data_to_encode = {
+            "fid": str(player_id),
+            "time": str(int(time.time() * 1000))
+        }
+        data = self.encode_data(data_to_encode)
         
-        return await asyncio.to_thread(_create_session)
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        
+        try:
+            async with session.post(
+                self.wos_player_info_url, 
+                headers=headers, 
+                data=data, 
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                # Read response info
+                try:
+                    resp_json = await response.json()
+                except Exception:
+                    resp_json = {}
+                return session, response, resp_json
+        except Exception as e:
+            self.logger.error(f"Error in get_stove_info_wos for {player_id}: {e}")
+            raise e
     
     
     async def _wait_for_rate_limit(self):

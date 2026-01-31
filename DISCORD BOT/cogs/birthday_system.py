@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 BIRTHDAYS_FILE = Path(__file__).parent.parent / "birthdays.json"
 SENT_WISHES_FILE = Path(__file__).parent.parent / "sent_wishes.json"
+BIRTHDAY_CHANNELS_FILE = Path(__file__).parent.parent / "birthday_channels.json"
 
 
 def to_superscript(text: str) -> str:
