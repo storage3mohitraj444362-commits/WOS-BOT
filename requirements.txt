@@ -32,7 +32,8 @@ SpeechRecognition>=3.10.0
 pydub>=0.25.1
 soundfile>=0.12.1
 edge-tts>=6.1.0
+# Alliance Monitor Dependencies
 mss>=9.0.0
 opencv-python>=4.8.0
 pytesseract>=0.3.10
-# pywin32>=306; sys_platform == 'win32'
+pywin32>=306; sys_platform == 'win32'

@@ -1,6 +1,6 @@
 import os
-import subprocess
 import sys
+import subprocess
 from pathlib import Path
 
 # Ensure repository root is on sys.path so modules like `db.mongo_adapters` can be imported
@@ -120,7 +120,7 @@ from api_manager import make_request, manager, make_image_request
 from angel_personality import get_system_prompt, angel_personality
 from user_mapping import get_known_user_name
 from gift_codes import get_active_gift_codes, build_codes_embed
-from cogs.reminder_system import ReminderSystem, set_user_timezone, get_user_timezone, get_user_timezone_async, TimeParser, REMINDER_IMAGES
+from cogs.reminder_system import ReminderSystem, set_user_timezone, get_user_timezone, TimeParser, REMINDER_IMAGES
 from event_tips import EVENT_TIPS, get_event_info
 from thinking_animation import ThinkingAnimation
 from command_animator import animator
@@ -270,9 +270,39 @@ def ensure_db_tables():
     except Exception:
         pass
 import sys
+import signal
+import asyncio
+from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
+import io
+import health_server
+import uptime_checker
+import giftcode_poster
+import aiohttp
+from urllib.parse import quote
+from typing import Optional
+from PIL import Image, ImageDraw, ImageFont
+import random
+import time
+from pathlib import Path
+import re
+from wos_api import fetch_player_info
+from beartrap_rag import is_beartrap_question, answer_beartrap_question
+ 
+# Ensure stdout/stderr use UTF-8 to avoid UnicodeEncodeError on Windows consoles
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    else:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+except Exception:
+    # Best-effort - if this fails, logging may still error but we avoid crashing at import
+    pass
 
-# This is a proxy script to handle Render's default 'python app.py' command
-# while keeping the source code organized in the 'DISCORD BOT' folder.
 
 # --- Improved signal handling for graceful shutdown diagnostics -----------------
 def _log_tasks_and_tracebacks():
@@ -2306,7 +2336,7 @@ async def time_autocomplete(interaction: discord.Interaction, current: str):
             parsed_dt, info = TimeParser.parse_time_string(current)
             if parsed_dt:
                 # Determine user's preferred timezone for display
-                user_tz = await get_user_timezone_async(interaction.user.id) or TimeParser.get_local_timezone()
+                user_tz = get_user_timezone(interaction.user.id) or TimeParser.get_local_timezone()
                 local_dt = TimeParser.utc_to_local(parsed_dt, user_tz)
                 preview = local_dt.strftime('%b %d, %I:%M %p')
                 # prepend to choices so it's prominent
@@ -4342,31 +4372,31 @@ async def check_and_update_files():
 
 # Run dependency/setup/update flow before starting bot when invoked as script
 if __name__ == "__main__":
-    # Ensure current directory is 'DISCORD BOT' so local imports work
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    bot_dir = os.path.join(project_root, "DISCORD BOT")
-    
-    if not os.path.exists(bot_dir):
-        print(f"[ROOT PROXY] Error: {bot_dir} not found.")
-        sys.exit(1)
-        
-    os.chdir(bot_dir)
-    
-    # Add it to sys.path just in case
-    if os.getcwd() not in sys.path:
-        sys.path.insert(0, os.getcwd())
-    
-    print(f"[ROOT PROXY] Starting bot from: {os.getcwd()}")
-    
-    # Run the real app.py using the same interpreter
-    # On Linux (Render), os.execvp is preferred as it replaces the current process
+    beta_mode = "--beta" in sys.argv
+    if not setup_dependencies(beta_mode=beta_mode):
+        print("Warning: Dependency setup incomplete. Proceeding may fail.")
     try:
-        if sys.platform == "win32":
-            subprocess.run([sys.executable, "app.py"])
-        else:
-            # Reconstruct the command line
-            python_path = sys.executable
-            os.execv(python_path, [python_path, "app.py"])
-    except Exception as e:
-        print(f"[ROOT PROXY] Fatal error starting bot: {e}")
-        sys.exit(1)
+        startup_cleanup()
+    except Exception:
+        pass
+    # Check for updates/repair unless explicitly skipped
+    if "--no-update" not in sys.argv:
+        try:
+            import asyncio as _asyncio
+            _asyncio.run(check_and_update_files())
+        except Exception:
+            pass
+
+try:
+    bot.run(TOKEN)
+except BaseException as e:
+    # Catch BaseException so we also capture SystemExit and KeyboardInterrupt
+    logger.error(f"Bot exited with: {type(e).__name__}: {e}", exc_info=True)
+    traceback.print_exc()
+    # keep the process alive briefly for inspection
+    for i in range(30):
+        logger.error(f"Bot exited — sleeping for inspection ({i+1}/30)")
+        time.sleep(1)
+    # re-raise to preserve original behavior after inspection
+    raise
+

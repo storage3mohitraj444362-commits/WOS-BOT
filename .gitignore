@@ -1,3 +1,18 @@
+__pycache__
+# Track Python source files in db/, but ignore databases and cache
+db/__pycache__
+db/*.sqlite*
+db/*.db
+db/backups/
+db.bak
+log
+bot_token.txt
+version
+.python-version
+bot_venv
+.env
+.env.*.env
+.venv311/
 # --- Python Cache & Build Files ---
 __pycache__/
 *.py[cod]
@@ -6,11 +21,7 @@ __pycache__/
 *.log
 *.bak
 *.db
-*.sqlite*
-db/*.sqlite*
-db/*.db
-db/backups/
-db.bak
+*.sqlite3
 
 # --- Virtual Environments ---
 .venv/
@@ -18,14 +29,8 @@ db.bak
 venv/
 env/
 bot_venv/
-.testvenv/
 
 # --- Environment & Secrets ---
-.env
-.env.*
-bot_token.txt
-creds.json
-mongo_uri.txt
 .vscode/
 .idea/
 *.code-workspace
@@ -39,20 +44,7 @@ dist/
 build/
 *.egg-info/
 coverage/
-.pytest_cache/
+pytest_cache/
 
-# --- Project Specific ---
-backup/
-temp_download/
-temp_pycord/
-bot_output.log
-bot_startup*.txt
-startup.log
-debug_id_channel.log
-captcha_images/
-animations/
-logs/
-log/
-PROJECT_MIGRATION/
-PROJECT_MIGRATION_TEMP/
-whiteout_survival_bot.egg-info/
+creds.json
+mongo_uri.txt
