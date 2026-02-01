@@ -8,6 +8,7 @@ import json
 import ssl
 import random
 import re
+import io
 from datetime import datetime
 import time
 import logging
@@ -184,6 +185,44 @@ class ManageGiftCode(commands.Cog):
         self.stop_signals = {}  # {guild_id: boolean}
         
         self.session = None
+
+    @commands.command(name="test_auto_redeem")
+    async def test_auto_redeem(self, ctx, fid: str, code: str):
+        """Test the auto-redeem flow for a specific FID and code (Admin Only)"""
+        if not await self.check_admin_permission(ctx.author.id):
+            await ctx.send("You do not have permission to use this command.")
+            return
+
+        status_msg = await ctx.send(f"Testing redemption for FID: {fid}, Code: {code}...")
+        
+        try:
+            # Test player fetch first
+            data = await self.fetch_player_data(fid)
+            if not data:
+                 await status_msg.edit(content=f"❌ Failed to fetch player data for FID {fid}")
+                 return
+            
+            nickname = data['nickname']
+            furnace_lv = data['furnace_lv']
+            
+            await status_msg.edit(content=f"✅ Found player: {nickname} (Furnace Lv: {furnace_lv})\nAttempting redemption...")
+            
+            # Attempt redemption
+            status, img_bytes, captcha, method = await self._redeem_for_member(
+                ctx.guild.id, fid, nickname, furnace_lv, code
+            )
+            
+            result_text = f"**Redemption Result:**\nStatus: {status}\nMethod: {method}\nCaptcha: {captcha}"
+            
+            if img_bytes:
+                file = discord.File(io.BytesIO(img_bytes), filename="captcha.png")
+                await ctx.send(content=result_text, file=file)
+            else:
+                await ctx.send(content=result_text)
+                
+        except Exception as e:
+            await ctx.send(f"❌ Error during test: {e}")
+            self.logger.exception(f"Error in test_auto_redeem: {e}")
 
     async def cog_load(self):
         """Initialize aiohttp session when cog is loaded"""
@@ -1263,36 +1302,42 @@ class ManageGiftCode(commands.Cog):
                              return "RATE_LIMITED", None, giftcode, method
                         self.logger.error(f"Error parsing response: {json_error}")
                         return "RESPONSE_PARSE_ERROR", None, giftcode, method
-                # Check for captcha errors
-                captcha_errors = {
-                    ("CAPTCHA CHECK ERROR", 40103),
-                    ("CAPTCHA GET TOO FREQUENT", 40100),
-                    ("CAPTCHA CHECK TOO FREQUENT", 40101),
-                    ("CAPTCHA EXPIRED", 40102)
-                }
+            except asyncio.TimeoutError:
+                return "TIMEOUT", None, giftcode, method
+            except Exception as e:
+                self.logger.error(f"Request error in redemption for FID {player_id}: {e}")
+                return "REQUEST_ERROR", None, giftcode, method
                 
-                is_captcha_error = (msg, err_code) in captcha_errors
+            # Check for captcha errors
+            captcha_errors = {
+                ("CAPTCHA CHECK ERROR", 40103),
+                ("CAPTCHA GET TOO FREQUENT", 40100),
+                ("CAPTCHA CHECK TOO FREQUENT", 40101),
+                ("CAPTCHA EXPIRED", 40102)
+            }
                 
-                if is_captcha_error:
-                    if attempt == max_ocr_attempts - 1:
-                        return "CAPTCHA_INVALID", image_bytes, captcha_code, method
-                    else:
-                        await asyncio.sleep(random.uniform(1.5, 2.5))
-                        continue
-                
-                # Determine final status
-                if msg == "SUCCESS":
-                    return "SUCCESS", image_bytes, captcha_code, method
-                elif msg == "RECEIVED" and err_code == 40008:
-                    return "ALREADY_RECEIVED", image_bytes, captcha_code, method
-                elif msg == "SAME TYPE EXCHANGE" and err_code == 40011:
-                    return "SAME TYPE EXCHANGE", image_bytes, captcha_code, method
-                elif msg == "TIME ERROR" and err_code == 40007:
-                    return "TIME_ERROR", image_bytes, captcha_code, method
-                elif msg == "CDK NOT FOUND" and err_code == 40014:
-                    return "CDK_NOT_FOUND", image_bytes, captcha_code, method
-                elif msg == "USAGE LIMIT" and err_code == 40009:
-                    return "USAGE_LIMIT", image_bytes, captcha_code, method
+            is_captcha_error = (msg, err_code) in captcha_errors
+            
+            if is_captcha_error:
+                if attempt == max_ocr_attempts - 1:
+                    return "CAPTCHA_INVALID", image_bytes, captcha_code, method
+                else:
+                    await asyncio.sleep(random.uniform(1.5, 2.5))
+                    continue
+            
+            # Determine final status
+            if msg == "SUCCESS":
+                return "SUCCESS", image_bytes, captcha_code, method
+            elif msg == "RECEIVED" and err_code == 40008:
+                return "ALREADY_RECEIVED", image_bytes, captcha_code, method
+            elif msg == "SAME TYPE EXCHANGE" and err_code == 40011:
+                return "SAME TYPE EXCHANGE", image_bytes, captcha_code, method
+            elif msg == "TIME ERROR" and err_code == 40007:
+                return "TIME_ERROR", image_bytes, captcha_code, method
+            elif msg == "CDK NOT FOUND" and err_code == 40014:
+                return "CDK_NOT_FOUND", image_bytes, captcha_code, method
+            elif msg == "USAGE LIMIT" and err_code == 40009:
+                return "USAGE_LIMIT", image_bytes, captcha_code, method
 
             except asyncio.TimeoutError:
                 return "TIMEOUT", None, giftcode, method
