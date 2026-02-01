@@ -1238,18 +1238,31 @@ class ManageGiftCode(commands.Cog):
             }
             data = self.encode_data(data_to_encode)
             
-            # Run synchronous request in thread pool
-            def _submit():
-                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                return session.post(self.wos_giftcode_url, headers=headers, data=data)
-            
-            response = await asyncio.to_thread(_submit)
-            
+            # Run async request
             try:
-                response_json = response.json()
-                msg = response_json.get("msg", "Unknown Error").strip('.')
-                err_code = response_json.get("err_code")
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                timeout = aiohttp.ClientTimeout(total=15) # Longer timeout for redemption
                 
+                async with session.post(self.wos_giftcode_url, headers=headers, data=data, timeout=timeout) as response:
+                    # Check for rate limiting
+                    if response.status == 429:
+                        self.logger.warning(f"Rate limited (429) in gift code redemption for FID {player_id}")
+                        return "RATE_LIMITED", None, giftcode, method
+                        
+                    if response.status != 200:
+                        self.logger.warning(f"HTTP {response.status} in gift code redemption for FID {player_id}")
+                        return f"HTTP_{response.status}", None, giftcode, method
+                        
+                    try:
+                        response_json = await response.json()
+                        msg = response_json.get("msg", "Unknown Error").strip('.')
+                        err_code = response_json.get("err_code")
+                    except Exception as json_error:
+                        response_text = await response.text()
+                        if response_text.strip().startswith('<!DOCTYPE') or response_text.strip().startswith('<html'):
+                             return "RATE_LIMITED", None, giftcode, method
+                        self.logger.error(f"Error parsing response: {json_error}")
+                        return "RESPONSE_PARSE_ERROR", None, giftcode, method
                 # Check for captcha errors
                 captcha_errors = {
                     ("CAPTCHA CHECK ERROR", 40103),
@@ -1280,6 +1293,12 @@ class ManageGiftCode(commands.Cog):
                     return "CDK_NOT_FOUND", image_bytes, captcha_code, method
                 elif msg == "USAGE LIMIT" and err_code == 40009:
                     return "USAGE_LIMIT", image_bytes, captcha_code, method
+
+            except asyncio.TimeoutError:
+                return "TIMEOUT", None, giftcode, method
+            except Exception as e:
+                self.logger.error(f"Request error in redemption for FID {player_id}: {e}")
+                return "REQUEST_ERROR", None, giftcode, method
                 else:
                     return f"UNKNOWN_STATUS_{msg}", image_bytes, captcha_code, method
                     
