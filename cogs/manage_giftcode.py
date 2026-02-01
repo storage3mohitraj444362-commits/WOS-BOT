@@ -5174,41 +5174,6 @@ class ManageGiftCode(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error in on_message FID detection: {e}", exc_info=True)
     
-    @commands.command(name='test_auto_redeem')
-    @commands.is_owner()
-    async def test_auto_redeem_command(self, ctx, giftcode: str):
-        """Test auto-redeem with an existing gift code (Owner only)"""
-        await ctx.send(f"🧪 Testing auto-redeem with code: `{giftcode}`\nPlease wait...")
-        
-        try:
-            # Check if auto-redeem is enabled first
-            enabled = False
-            if mongo_enabled() and AutoRedeemSettingsAdapter:
-                try:
-                    settings = AutoRedeemSettingsAdapter.get_settings(ctx.guild.id)
-                    if settings:
-                        enabled = settings.get('enabled', False)
-                except Exception as e:
-                    self.logger.warning(f"Failed to check MongoDB settings: {e}")
-            
-            if not enabled:
-                self.cursor.execute(
-                    "SELECT enabled FROM auto_redeem_settings WHERE guild_id = ?",
-                    (ctx.guild.id,)
-                )
-                result = self.cursor.fetchone()
-                enabled = result[0] == 1 if result else False
-            
-            if not enabled:
-                await ctx.send(f"❌ Auto-redeem is **disabled** for this server!\nPlease enable it first using the `/manage` command → Auto Redeem Configuration → Enable Auto-Redeem")
-                return
-            
-            # Trigger the auto-redeem process and wait for it to complete
-            await self.process_auto_redeem(ctx.guild.id, giftcode)
-            await ctx.send(f"✅ Auto-redeem test completed! Check the auto-redeem channel for results.")
-        except Exception as e:
-            await ctx.send(f"❌ Error during test: {str(e)}")
-            self.logger.exception(f"Error in test_auto_redeem: {e}")
 
     @commands.command(name="stop_auto_redeem", aliases=["stop_redeem"])
     async def stop_auto_redeem_text(self, ctx):
