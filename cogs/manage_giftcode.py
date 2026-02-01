@@ -1123,47 +1123,45 @@ class ManageGiftCode(commands.Cog):
             }
             data = self.encode_data(data_to_encode)
             
-            # Run synchronous request in thread pool to avoid blocking
-            def _fetch():
-                try:
-                    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                    response = session.post(self.wos_captcha_url, headers=headers, data=data, timeout=10)
-                    return response, None
-                except Exception as e:
-                    return None, str(e)
-            
-            response, error = await asyncio.to_thread(_fetch)
-            
-            if error:
-                self.logger.error(f"Request error in fetch_captcha for FID {player_id}: {error}")
-                return None, f"Request Error: {error}"
-            
-            # Check for rate limiting (HTTP 429)
-            if response.status_code == 429:
-                self.logger.warning(f"Rate limited (429) in fetch_captcha for FID {player_id}")
-                return None, "RATE_LIMITED"
-            
-            if response.status_code == 200:
-                try:
-                    response_json = response.json()
-                    if response_json.get("msg") == "SUCCESS":  # API returns uppercase SUCCESS
-                        return response_json.get("data"), None
-                    elif response_json.get("msg") == "CAPTCHA GET TOO FREQUENT":
-                        return None, "CAPTCHA_TOO_FREQUENT"
-                    else:
-                        self.logger.warning(f"CAPTCHA API returned: {response_json.get('msg', 'Unknown')}")
-                        return None, f"API Error: {response_json.get('msg', 'Unknown')}"
-                except Exception as json_error:
-                    # Check if response is HTML (rate limit error page)
-                    if response.text.strip().startswith('<!DOCTYPE') or response.text.strip().startswith('<html'):
-                        self.logger.warning(f"Received HTML error page (likely rate limited) for FID {player_id}")
-                        return None, "RATE_LIMITED"
-                    self.logger.error(f"JSON parse error in fetch_captcha: {json_error}, Response: {response.text[:200]}")
-                    return None, "Invalid JSON response"
-            else:
-                self.logger.error(f"HTTP error in fetch_captcha: {response.status_code}, Response: {response.text[:200]}")
-                return None, f"HTTP {response.status_code}"
+            try:
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                timeout = aiohttp.ClientTimeout(total=10)
                 
+                async with session.post(self.wos_captcha_url, headers=headers, data=data, timeout=timeout) as response:
+                    # Check for rate limiting (HTTP 429)
+                    if response.status == 429:
+                        self.logger.warning(f"Rate limited (429) in fetch_captcha for FID {player_id}")
+                        return None, "RATE_LIMITED"
+                    
+                    if response.status == 200:
+                        try:
+                            response_json = await response.json()
+                            if response_json.get("msg") == "SUCCESS":  # API returns uppercase SUCCESS
+                                return response_json.get("data"), None
+                            elif response_json.get("msg") == "CAPTCHA GET TOO FREQUENT":
+                                return None, "CAPTCHA_TOO_FREQUENT"
+                            else:
+                                self.logger.warning(f"CAPTCHA API returned: {response_json.get('msg', 'Unknown')}")
+                                return None, f"API Error: {response_json.get('msg', 'Unknown')}"
+                        except Exception as json_error:
+                            # Check if response is HTML (rate limit error page)
+                            text = await response.text()
+                            if text.strip().startswith('<!DOCTYPE') or text.strip().startswith('<html'):
+                                self.logger.warning(f"Received HTML error page (likely rate limited) for FID {player_id}")
+                                return None, "RATE_LIMITED"
+                            self.logger.error(f"JSON decode error in fetch_captcha for FID {player_id}: {json_error}")
+                            return None, f"JSON Error: {json_error}"
+                    else:
+                        self.logger.warning(f"HTTP {response.status} in fetch_captcha for FID {player_id}")
+                        return None, f"HTTP Error: {response.status}"
+                        
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout in fetch_captcha for FID {player_id}")
+                return None, "TIMEOUT"
+            except Exception as e:
+                self.logger.error(f"Request error in fetch_captcha for FID {player_id}: {e}")
+                return None, f"Request Error: {e}"
+
         except Exception as e:
             self.logger.exception(f"Unexpected error in fetch_captcha for FID {player_id}: {e}")
             return None, str(e)
