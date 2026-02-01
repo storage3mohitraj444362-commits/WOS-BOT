@@ -199,24 +199,56 @@ class ManageGiftCode(commands.Cog):
         furnace_lv = 0
         
         if not target_fid:
-            # 1. Try to find member added by this user
-            try:
-                self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE added_by = ? LIMIT 1", (ctx.author.id,))
-                row = self.cursor.fetchone()
-                if row:
-                    target_fid = row[0]
-                    nickname = row[1]
-                    furnace_lv = row[2]
-                else:
-                    # 2. Fallback to any member in this guild
-                    self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE guild_id = ? LIMIT 1", (ctx.guild.id,))
+            # Try MongoDB first, then SQLite
+            _mongo_enabled = globals().get('mongo_enabled', lambda: False)
+            found_in_mongo = False
+            
+            if _mongo_enabled() and AutoRedeemMembersAdapter:
+                try:
+                    # 1. Try to find member added by this user (MongoDB)
+                    members = AutoRedeemMembersAdapter.get_members_by_user(ctx.author.id)
+                    if members and len(members) > 0:
+                        member = members[0]
+                        target_fid = member.get('fid')
+                        nickname = member.get('nickname', 'Unknown')
+                        furnace_lv = member.get('furnace_lv', 0)
+                        found_in_mongo = True
+                        self.logger.info(f"Found member in MongoDB: {target_fid}")
+                    else:
+                        # 2. Fallback to any member in this guild (MongoDB)
+                        members = AutoRedeemMembersAdapter.get_members(ctx.guild.id)
+                        if members and len(members) > 0:
+                            member = members[0]
+                            target_fid = member.get('fid')
+                            nickname = member.get('nickname', 'Unknown')
+                            furnace_lv = member.get('furnace_lv', 0)
+                            found_in_mongo = True
+                            self.logger.info(f"Found member in MongoDB (guild): {target_fid}")
+                except Exception as e:
+                    self.logger.warning(f"MongoDB member lookup failed: {e}")
+            
+            # Fallback to SQLite if not found in MongoDB
+            if not target_fid:
+                try:
+                    # 1. Try to find member added by this user (SQLite)
+                    self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE added_by = ? LIMIT 1", (ctx.author.id,))
                     row = self.cursor.fetchone()
                     if row:
                         target_fid = row[0]
                         nickname = row[1]
                         furnace_lv = row[2]
-            except Exception as e:
-                self.logger.error(f"Error finding target member: {e}")
+                        self.logger.info(f"Found member in SQLite: {target_fid}")
+                    else:
+                        # 2. Fallback to any member in this guild (SQLite)
+                        self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE guild_id = ? LIMIT 1", (ctx.guild.id,))
+                        row = self.cursor.fetchone()
+                        if row:
+                            target_fid = row[0]
+                            nickname = row[1]
+                            furnace_lv = row[2]
+                            self.logger.info(f"Found member in SQLite (guild): {target_fid}")
+                except Exception as e:
+                    self.logger.error(f"SQLite member lookup failed: {e}")
         
         if not target_fid:
              await ctx.send("❌ No auto-redeem members found to test with. Please add a member using `/auto_redeem_add` first.")
