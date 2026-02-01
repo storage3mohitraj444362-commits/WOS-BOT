@@ -207,6 +207,29 @@ def ensure_db_tables():
             status TEXT,
             PRIMARY KEY (fid, giftcode)
         )''')
+        # Auto-redeem tables for gift code management
+        c.execute('''CREATE TABLE IF NOT EXISTS auto_redeem_members (
+            guild_id INTEGER,
+            fid TEXT,
+            nickname TEXT,
+            furnace_lv INTEGER DEFAULT 0,
+            avatar_image TEXT,
+            added_by INTEGER,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (guild_id, fid)
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS auto_redeem_channels (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL,
+            added_by INTEGER NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS auto_redeem_settings (
+            guild_id INTEGER PRIMARY KEY,
+            enabled INTEGER DEFAULT 0,
+            updated_by INTEGER,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
         conn.commit()
         conn.close()
     except Exception:
