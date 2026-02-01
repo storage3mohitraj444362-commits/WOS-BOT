@@ -187,32 +187,61 @@ class ManageGiftCode(commands.Cog):
         self.session = None
 
     @commands.command(name="test_auto_redeem")
-    async def test_auto_redeem(self, ctx, fid: str, code: str):
-        """Test the auto-redeem flow for a specific FID and code (Admin Only)"""
+    async def test_auto_redeem(self, ctx, code: str, fid: str = None):
+        """Test the auto-redeem flow (Admin Only). Usage: !test_auto_redeem <code_to_test> [optional_fid]"""
         if not await self.check_admin_permission(ctx.author.id):
             await ctx.send("You do not have permission to use this command.")
             return
 
-        status_msg = await ctx.send(f"Testing redemption for FID: {fid}, Code: {code}...")
+        # Find target FID if not provided
+        target_fid = fid
+        nickname = "Unknown"
+        furnace_lv = 0
+        
+        if not target_fid:
+            # 1. Try to find member added by this user
+            try:
+                self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE added_by = ? LIMIT 1", (ctx.author.id,))
+                row = self.cursor.fetchone()
+                if row:
+                    target_fid = row[0]
+                    nickname = row[1]
+                    furnace_lv = row[2]
+                else:
+                    # 2. Fallback to any member in this guild
+                    self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE guild_id = ? LIMIT 1", (ctx.guild.id,))
+                    row = self.cursor.fetchone()
+                    if row:
+                        target_fid = row[0]
+                        nickname = row[1]
+                        furnace_lv = row[2]
+            except Exception as e:
+                self.logger.error(f"Error finding target member: {e}")
+        
+        if not target_fid:
+             await ctx.send("❌ No auto-redeem members found to test with. Please add a member using `/auto_redeem_add` first.")
+             return
+
+        status_msg = await ctx.send(f"Testing redemption for **{nickname}** (FID: {target_fid}), Code: `{code}`...")
         
         try:
-            # Test player fetch first
-            data = await self.fetch_player_data(fid)
+            # Test player fetch first (verify session validation)
+            data = await self.fetch_player_data(target_fid)
+            
+            # If fetch fails, try to use stored data but warn
             if not data:
-                 await status_msg.edit(content=f"❌ Failed to fetch player data for FID {fid}")
-                 return
-            
-            nickname = data['nickname']
-            furnace_lv = data['furnace_lv']
-            
-            await status_msg.edit(content=f"✅ Found player: {nickname} (Furnace Lv: {furnace_lv})\nAttempting redemption...")
+                 await status_msg.edit(content=f"⚠️ Failed to fetch fresh player data. Using stored info...\nAttempting redemption...")
+            else:
+                 nickname = data['nickname']
+                 furnace_lv = data['furnace_lv']
+                 await status_msg.edit(content=f"✅ Verified player: **{nickname}** (Furnace Lv: {furnace_lv})\nAttempting redemption...")
             
             # Attempt redemption
             status, img_bytes, captcha, method = await self._redeem_for_member(
-                ctx.guild.id, fid, nickname, furnace_lv, code
+                ctx.guild.id, target_fid, nickname, furnace_lv, code
             )
             
-            result_text = f"**Redemption Result:**\nStatus: {status}\nMethod: {method}\nCaptcha: {captcha}"
+            result_text = f"**Redemption Result:**\nStatus: `{status}`\nMethod: `{method}`\nCaptcha: `{captcha}`"
             
             if img_bytes:
                 file = discord.File(io.BytesIO(img_bytes), filename="captcha.png")
@@ -1278,6 +1307,7 @@ class ManageGiftCode(commands.Cog):
             data = self.encode_data(data_to_encode)
             
             # Run async request
+            # Run async request
             try:
                 headers = {'Content-Type': 'application/x-www-form-urlencoded'}
                 timeout = aiohttp.ClientTimeout(total=15) # Longer timeout for redemption
@@ -1302,12 +1332,13 @@ class ManageGiftCode(commands.Cog):
                              return "RATE_LIMITED", None, giftcode, method
                         self.logger.error(f"Error parsing response: {json_error}")
                         return "RESPONSE_PARSE_ERROR", None, giftcode, method
+
             except asyncio.TimeoutError:
                 return "TIMEOUT", None, giftcode, method
             except Exception as e:
                 self.logger.error(f"Request error in redemption for FID {player_id}: {e}")
                 return "REQUEST_ERROR", None, giftcode, method
-                
+            
             # Check for captcha errors
             captcha_errors = {
                 ("CAPTCHA CHECK ERROR", 40103),
@@ -1338,18 +1369,8 @@ class ManageGiftCode(commands.Cog):
                 return "CDK_NOT_FOUND", image_bytes, captcha_code, method
             elif msg == "USAGE LIMIT" and err_code == 40009:
                 return "USAGE_LIMIT", image_bytes, captcha_code, method
-
-            except asyncio.TimeoutError:
-                return "TIMEOUT", None, giftcode, method
-            except Exception as e:
-                self.logger.error(f"Request error in redemption for FID {player_id}: {e}")
-                return "REQUEST_ERROR", None, giftcode, method
-                else:
-                    return f"UNKNOWN_STATUS_{msg}", image_bytes, captcha_code, method
-                    
-            except Exception as e:
-                self.logger.exception(f"Error parsing response: {e}")
-                return "RESPONSE_PARSE_ERROR", None, None, None
+            else:
+                return f"UNKNOWN_STATUS_{msg}", image_bytes, captcha_code, method
         
         return "MAX_ATTEMPTS_REACHED", None, None, None
     
