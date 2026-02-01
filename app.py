@@ -324,6 +324,7 @@ except Exception:
     pass
 
 # Initialize database tables (SQLite fallback)
+logger = logging.getLogger(__name__)
 ensure_db_tables()
 
 
