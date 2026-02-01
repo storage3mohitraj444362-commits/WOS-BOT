@@ -323,6 +323,10 @@ except Exception:
     # Best-effort - if this fails, logging may still error but we avoid crashing at import
     pass
 
+# Initialize database tables (SQLite fallback)
+ensure_db_tables()
+
+
 
 # --- Improved signal handling for graceful shutdown diagnostics -----------------
 def _log_tasks_and_tracebacks():
