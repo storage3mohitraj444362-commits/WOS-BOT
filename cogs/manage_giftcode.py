@@ -205,25 +205,25 @@ class ManageGiftCode(commands.Cog):
             
             if _mongo_enabled() and AutoRedeemMembersAdapter:
                 try:
-                    # 1. Try to find member added by this user (MongoDB)
-                    members = AutoRedeemMembersAdapter.get_members_by_user(ctx.author.id)
-                    if members and len(members) > 0:
+                    # 1. Get all members from this guild and try to find one added by this user (MongoDB)
+                    members = AutoRedeemMembersAdapter.get_members(ctx.guild.id)
+                    user_members = [m for m in members if m.get('added_by') == ctx.author.id]
+                    
+                    if user_members:
+                        member = user_members[0]
+                        target_fid = member.get('fid')
+                        nickname = member.get('nickname', 'Unknown')
+                        furnace_lv = member.get('furnace_lv', 0)
+                        found_in_mongo = True
+                        self.logger.info(f"Found member in MongoDB (added by user): {target_fid}")
+                    elif members:
+                        # 2. Fallback to any member in this guild (MongoDB) - already fetched above
                         member = members[0]
                         target_fid = member.get('fid')
                         nickname = member.get('nickname', 'Unknown')
                         furnace_lv = member.get('furnace_lv', 0)
                         found_in_mongo = True
-                        self.logger.info(f"Found member in MongoDB: {target_fid}")
-                    else:
-                        # 2. Fallback to any member in this guild (MongoDB)
-                        members = AutoRedeemMembersAdapter.get_members(ctx.guild.id)
-                        if members and len(members) > 0:
-                            member = members[0]
-                            target_fid = member.get('fid')
-                            nickname = member.get('nickname', 'Unknown')
-                            furnace_lv = member.get('furnace_lv', 0)
-                            found_in_mongo = True
-                            self.logger.info(f"Found member in MongoDB (guild): {target_fid}")
+                        self.logger.info(f"Found member in MongoDB (guild): {target_fid}")
                 except Exception as e:
                     self.logger.warning(f"MongoDB member lookup failed: {e}")
             
