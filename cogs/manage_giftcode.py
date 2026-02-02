@@ -193,94 +193,80 @@ class ManageGiftCode(commands.Cog):
             await ctx.send("You do not have permission to use this command.")
             return
 
-        # Find target FID if not provided
+        if not fid:
+            # If no FID is provided, run the full auto-redeem process for the guild
+            await ctx.send(f"🧪 Starting full auto-redeem test for guild with code: `{code}`...")
+            await self.process_auto_redeem(ctx.guild.id, code)
+            return
+
+        # If FID is provided, proceed with single member test but with improved UI
         target_fid = fid
         nickname = "Unknown"
         furnace_lv = 0
         
-        if not target_fid:
-            # Try MongoDB first, then SQLite
-            _mongo_enabled = globals().get('mongo_enabled', lambda: False)
-            found_in_mongo = False
-            
-            if _mongo_enabled() and AutoRedeemMembersAdapter:
-                try:
-                    # 1. Get all members from this guild and try to find one added by this user (MongoDB)
-                    members = AutoRedeemMembersAdapter.get_members(ctx.guild.id)
-                    user_members = [m for m in members if m.get('added_by') == ctx.author.id]
-                    
-                    if user_members:
-                        member = user_members[0]
-                        target_fid = member.get('fid')
-                        nickname = member.get('nickname', 'Unknown')
-                        furnace_lv = member.get('furnace_lv', 0)
-                        found_in_mongo = True
-                        self.logger.info(f"Found member in MongoDB (added by user): {target_fid}")
-                    elif members:
-                        # 2. Fallback to any member in this guild (MongoDB) - already fetched above
-                        member = members[0]
-                        target_fid = member.get('fid')
-                        nickname = member.get('nickname', 'Unknown')
-                        furnace_lv = member.get('furnace_lv', 0)
-                        found_in_mongo = True
-                        self.logger.info(f"Found member in MongoDB (guild): {target_fid}")
-                except Exception as e:
-                    self.logger.warning(f"MongoDB member lookup failed: {e}")
-            
-            # Fallback to SQLite if not found in MongoDB
-            if not target_fid:
-                try:
-                    # 1. Try to find member added by this user (SQLite)
-                    self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE added_by = ? LIMIT 1", (ctx.author.id,))
-                    row = self.cursor.fetchone()
-                    if row:
-                        target_fid = row[0]
-                        nickname = row[1]
-                        furnace_lv = row[2]
-                        self.logger.info(f"Found member in SQLite: {target_fid}")
-                    else:
-                        # 2. Fallback to any member in this guild (SQLite)
-                        self.cursor.execute("SELECT fid, nickname, furnace_lv FROM auto_redeem_members WHERE guild_id = ? LIMIT 1", (ctx.guild.id,))
-                        row = self.cursor.fetchone()
-                        if row:
-                            target_fid = row[0]
-                            nickname = row[1]
-                            furnace_lv = row[2]
-                            self.logger.info(f"Found member in SQLite (guild): {target_fid}")
-                except Exception as e:
-                    self.logger.error(f"SQLite member lookup failed: {e}")
-        
-        if not target_fid:
-             await ctx.send("❌ No auto-redeem members found to test with. Please add a member using `/auto_redeem_add` first.")
-             return
-
-        status_msg = await ctx.send(f"Testing redemption for **{nickname}** (FID: {target_fid}), Code: `{code}`...")
+        # Test player fetch first (verify session validation)
+        status_msg = await ctx.send(f"🧪 Testing redemption for FID: `{target_fid}`, Code: `{code}`...")
         
         try:
-            # Test player fetch first (verify session validation)
             data = await self.fetch_player_data(target_fid)
-            
-            # If fetch fails, try to use stored data but warn
-            if not data:
-                 await status_msg.edit(content=f"⚠️ Failed to fetch fresh player data. Using stored info...\nAttempting redemption...")
+            if data:
+                nickname = data['nickname']
+                furnace_lv = data['furnace_lv']
+                await status_msg.edit(content=f"✅ Verified player: **{nickname}** (Furnace Lv: {furnace_lv})\nAttempting redemption...")
             else:
-                 nickname = data['nickname']
-                 furnace_lv = data['furnace_lv']
-                 await status_msg.edit(content=f"✅ Verified player: **{nickname}** (Furnace Lv: {furnace_lv})\nAttempting redemption...")
-            
+                 await status_msg.edit(content=f"⚠️ Failed to fetch fresh player data for FID `{target_fid}`. Attempting redemption with default info...")
+
+            # Show initial progress UI (ANSI styled like the real process)
+            progress_bar = '█' * 0 + '░' * 20
+            progress_embed = discord.Embed(
+                title="🎁 Auto-Redeem In Progress (Test)",
+                description=(
+                    f"```ansi\n"
+                    f"\u001b[2;36m━━━━━━━━━━━━━━━━━━━━━━\u001b[0m\n"
+                    f"\u001b[1;37mGift Code: {code}\u001b[0m\n"
+                    f"\u001b[2;36m━━━━━━━━━━━━━━━━━━━━━━\u001b[0m\n"
+                    f"```\n"
+                    f"**Progress:** `{progress_bar}` **0.0%**\n"
+                    f"📊 **Processed:** 0/1\n\n"
+                    f"✅ **Success:** 0\n"
+                    f"ℹ️ **Already Redeemed:** 0\n"
+                    f"❌ **Failed:** 0\n"
+                    f"🏰 **Server:** {ctx.guild.name}\n"
+                ),
+                color=0x5865F2
+            )
+            ui_msg = await ctx.send(embed=progress_embed)
+
             # Attempt redemption
-            status, img_bytes, captcha, method = await self._redeem_for_member(
+            status, success, already_redeemed, failed = await self._redeem_for_member(
                 ctx.guild.id, target_fid, nickname, furnace_lv, code
             )
             
-            result_text = f"**Redemption Result:**\nStatus: `{status}`\nMethod: `{method}`\nCaptcha: `{captcha}`"
+            # Update to final UI state
+            final_bar = '█' * 20
+            final_embed = discord.Embed(
+                title="🎁 Auto-Redeem Complete (Test)",
+                description=(
+                    f"```ansi\n"
+                    f"\u001b[2;36m━━━━━━━━━━━━━━━━━━━━━━\u001b[0m\n"
+                    f"\u001b[1;37mGift Code: {code}\u001b[0m\n"
+                    f"\u001b[2;36m━━━━━━━━━━━━━━━━━━━━━━\u001b[0m\n"
+                    f"```\n"
+                    f"**Progress:** `{final_bar}` **100.0%**\n"
+                    f"📊 **Processed:** 1/1\n\n"
+                    f"✅ **Success:** {success}\n"
+                    f"ℹ️ **Already Redeemed:** {already_redeemed}\n"
+                    f"❌ **Failed:** {failed}\n"
+                    f"🏰 **Server:** {ctx.guild.name}\n"
+                    f"\n**Result Status:** `{status}`"
+                ),
+                color=0x57F287 if success else 0xFEE75C
+            )
+            await ui_msg.edit(embed=final_embed)
             
-            if img_bytes:
-                file = discord.File(io.BytesIO(img_bytes), filename="captcha.png")
-                await ctx.send(content=result_text, file=file)
-            else:
-                await ctx.send(content=result_text)
-                
+            # Cleanup initial status message
+            await status_msg.delete()
+
         except Exception as e:
             await ctx.send(f"❌ Error during test: {e}")
             self.logger.exception(f"Error in test_auto_redeem: {e}")
