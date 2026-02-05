@@ -1,0 +1,50 @@
+2026-01-31 17:49:34,566 - ✅ Loaded cogs.start_menu
+2026-01-31 17:49:36,357 - ✅ Loaded cogs.alliance
+2026-01-31 17:49:36,428 - ✅ Loaded cogs.alliance_member_operations
+2026-01-31 17:49:36,466 - ✅ Loaded cogs.changes
+2026-01-31 17:49:36,581 - ✅ Loaded cogs.web_search
+2026-01-31 17:49:36,601 - ✅ Loaded cogs.welcome_channel
+2026-01-31 17:49:36,645 - ✅ Loaded cogs.control
+2026-01-31 17:49:36,926 - ✅ Loaded cogs.gift_operations
+2026-01-31 17:49:37,263 - ✅ Loaded cogs.manage_giftcode
+2026-01-31 17:49:37,281 - ✅ Loaded cogs.id_channel
+2026-01-31 17:49:37,461 - ✅ Loaded cogs.bot_operations
+2026-01-31 17:49:37,489 - ✅ Loaded cogs.remote_access
+2026-01-31 17:49:37,501 - ✅ Loaded cogs.fid_commands
+2026-01-31 17:49:37,504 - ✅ Loaded cogs.record_commands
+2026-01-31 17:49:37,591 - ✅ Loaded cogs.bear_trap
+2026-01-31 17:49:37,605 - ✅ Loaded cogs.bear_trap_editor
+2026-01-31 17:49:37,826 - ✅ Loaded cogs.attendance
+2026-01-31 17:49:37,908 - ✅ Loaded cogs.minister_schedule
+2026-01-31 17:49:37,915 - ✅ Loaded cogs.other_features
+2026-01-31 17:49:37,923 - ✅ Loaded cogs.support_operations
+2026-01-31 17:49:37,961 - ✅ Loaded cogs.minister_menu
+2026-01-31 17:49:37,973 - ✅ Loaded cogs.playerinfo
+2026-01-31 17:49:38,000 - ✅ Loaded cogs.reminder_system
+2026-01-31 17:49:38,045 - ✅ Loaded cogs.birthday_system
+2026-01-31 17:49:38,049 - ✅ Loaded cogs.events
+2026-01-31 17:49:38,074 - ✅ Loaded cogs.server_age
+2026-01-31 17:49:38,081 - ✅ Loaded cogs.personalise_chat
+2026-01-31 17:49:45,847 - ✅ Loaded cogs.music
+2026-01-31 17:49:53,318 - ✅ Loaded cogs.voice_conversation
+2026-01-31 17:49:53,344 - ✅ Loaded cogs.tts
+2026-01-31 17:49:53,361 - ✅ Loaded cogs.auto_translate
+2026-01-31 17:49:53,384 - ✅ Loaded cogs.message_extractor
+2026-01-31 17:49:53,389 - ✅ Loaded cogs.tictactoe
+2026-01-31 17:49:53,396 - ❌ Failed to load cogs.alliance_monitor: Extension 'cogs.alliance_monitor' raised an error: ModuleNotFoundError: No module named 'alliance_monitor.scanner'
+2026-01-31 17:49:53,396 - 📦 Cog loading complete: 33 loaded, 1 failed
+2026-01-31 17:49:53,461 - ✅ User profiles loaded successfully
+2026-01-31 17:49:54,373 - ✅ Playlist storage initialized
+2026-01-31 17:49:55,136 - ✅ Music state storage initialized
+2026-01-31 17:49:55,139 - ⚠️  Health server failed to start (port may be in use)
+2026-01-31 17:49:55,139 - ✅ Keep-alive task started (runs every 5 minutes)
+2026-01-31 17:49:55,194 - 🔄 Restoring 0 persistent views from MongoDB...
+2026-01-31 17:49:55,195 - ✅ View restoration complete: 0 restored, 0 failed
+2026-01-31 17:49:55,196 - ✅ Registered GiftCodeView
+2026-01-31 17:49:55,196 - ✅ Registered PersistentHelpView
+2026-01-31 17:49:55,196 - ✅ Registered Pollinate Views
+2026-01-31 17:49:55,197 - ✅ Registered PersistentMemberListView
+2026-01-31 17:49:55,198 - ✅ Registered BirthdayWishView
+2026-01-31 17:49:58,248 - 🤖 Logged in as NOX#3764 (ID: 1398872857487999027)
+2026-01-31 17:49:58,248 - 📊 Connected to 4 guild(s)
+2026-01-31 17:49:59,090 - ✅ Synced 61 commands globally
