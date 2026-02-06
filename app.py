@@ -4414,14 +4414,42 @@ if __name__ == "__main__":
 
 try:
     bot.run(TOKEN)
-except BaseException as e:
-    # Catch BaseException so we also capture SystemExit and KeyboardInterrupt
+except Exception as e:
+    # Check for Discord Rate Limit (429)
+    # This usually means the IP is banned by Cloudflare for ~30-60 minutes
+    is_rate_limit = False
+    try:
+        if isinstance(e, discord.errors.HTTPException) and e.status == 429:
+            is_rate_limit = True
+    except Exception:
+        pass
+
     logger.error(f"Bot exited with: {type(e).__name__}: {e}", exc_info=True)
     traceback.print_exc()
-    # keep the process alive briefly for inspection
-    for i in range(30):
-        logger.error(f"Bot exited — sleeping for inspection ({i+1}/30)")
-        time.sleep(1)
-    # re-raise to preserve original behavior after inspection
+
+    if is_rate_limit:
+        logger.critical("🛑 HIT DISCORD RATE LIMIT (429) 🛑")
+        logger.critical("This indicates a Cloudflare IP ban. The bot MUST sleep to allow the ban to expire.")
+        logger.critical("Entering 45-minute cooldown period. DO NOT RESTART MANUALLY.")
+        
+        # Sleep for 45 minutes to be safe (Cloudflare bans are usually 30-60 mins)
+        # We assume the container manager (Render) will keep this process alive during sleep
+        cooldown_minutes = 45
+        for i in range(cooldown_minutes):
+            logger.info(f"⏳ Rate limit cooldown: {cooldown_minutes - i} minutes remaining...")
+            time.sleep(60)
+            
+        logger.info("Cooldown finished. Exiting to allow restart...")
+    else:
+        # For other errors, sleep briefly to prevent rapid restart loops (Render usually restarts immediately)
+        # 2 minutes sleep to throttle restarts
+        logger.error("Bot crashed. Sleeping for 2 minutes before exiting to prevent rapid restart loops...")
+        time.sleep(120)
+
+    # Re-raise to let the process exit and Render restart it
+    raise
+except BaseException as e:
+    # Handle KeyboardInterrupt / SystemExit cleanly
+    logger.info(f"Bot stopped by signal: {e}")
     raise
 
