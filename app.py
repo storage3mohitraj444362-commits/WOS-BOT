@@ -4432,12 +4432,32 @@ except Exception as e:
         logger.critical("This indicates a Cloudflare IP ban. The bot MUST sleep to allow the ban to expire.")
         logger.critical("Entering 45-minute cooldown period. DO NOT RESTART MANUALLY.")
         
-        # Sleep for 45 minutes to be safe (Cloudflare bans are usually 30-60 mins)
-        # We assume the container manager (Render) will keep this process alive during sleep
-        cooldown_minutes = 45
-        for i in range(cooldown_minutes):
-            logger.info(f"⏳ Rate limit cooldown: {cooldown_minutes - i} minutes remaining...")
-            time.sleep(60)
+        # We must start the health server so Render doesn't kill the container for not binding the port
+        async def run_cooldown_server():
+            try:
+                from health_server import start_health_server
+                # This binds to os.environ['PORT']
+                port = await start_health_server()
+                if port:
+                    logger.info(f"✅ Health server started on port {port} (keeping container alive during cooldown)")
+                else:
+                    logger.warning("⚠️  Failed to bind port during cooldown (container might be killed)")
+            except Exception as e:
+                logger.error(f"Failed to start health server: {e}")
+
+            # Sleep for 45 minutes (Cloudflare bans are usually 30-60 mins)
+            cooldown_minutes = 45
+            for i in range(cooldown_minutes):
+                logger.info(f"⏳ Rate limit cooldown: {cooldown_minutes - i} minutes remaining...")
+                await asyncio.sleep(60)
+
+        try:
+            # Run the async loop to handle the server and waiting
+            asyncio.run(run_cooldown_server())
+        except Exception as e:
+            logger.error(f"Async cooldown loop failed: {e}")
+            # Fallback blocking sleep
+            time.sleep(45 * 60)
             
         logger.info("Cooldown finished. Exiting to allow restart...")
     else:
