@@ -25,6 +25,10 @@ async def fetch_player_info(player_id: str) -> dict | None:
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://wos-giftcode-api.centurygame.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://wos-giftcode-api.centurygame.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
     try:

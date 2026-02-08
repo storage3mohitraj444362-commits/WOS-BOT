@@ -195,8 +195,9 @@ class RobustOpenRouterManager:
         headers = {
             "Authorization": f"Bearer {key_info.key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/your-repo/angel-bot",  # Replace with your actual domain
-            "X-Title": "Angel Bot"
+            "HTTP-Referer": "https://github.com/storage3mohitraj444362-commits/WOS-BOT",
+            "X-Title": "Whiteout Survival Assistant",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
         # Enhanced logging for diagnostics
