@@ -117,28 +117,57 @@ import json
 import logging
 from api_manager import make_request, manager, make_image_request
 
-# --- Cloudflare 1015 Bypass: Monkeypatch Discord User-Agent ---
-# Force discord.py to use a "real browser" User-Agent to avoid Render IP bans.
+# --- Cloudflare 1015 Bypass: Full Browser Masquerade ---
+# Force discord.py to use full Chrome headers in EVERY request.
 import discord.http
 
-def patch_discord_user_agent():
+def patch_discord_client():
     """
-    Override the default User-Agent validation and string in discord.py
-    to mimic a standard Windows Chrome browser.
+    Monkeypatch discord.http.HTTPClient.request to inject a full set of
+    Chrome browser headers. This bypasses Cloudflare's 'Bad Reputation' IP bans.
     """
-    # 1. Define the spoofed User-Agent
-    SPOOFED_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    
-    # 2. Patch the user_agent property correctly
-    # discord.py uses a property for user_agent, so we need to validly override it
-    discord.http.HTTPClient.user_agent = SPOOFED_UA
-    
-    # 3. Log the patch
-    print(f"[PATCH] Discord User-Agent patched to: {SPOOFED_UA}")
+    _original_request = discord.http.HTTPClient.request
+
+    async def patched_request(self, route, *, files=None, form=None, **kwargs):
+        # 1. Get or init headers dict
+        headers = kwargs.get('headers', {})
+        if headers is None:
+            headers = {}
+        
+        # 2. Inject Chrome 120 Headers
+        # These headers mimic a real Chrome browser on Windows requesting a same-origin resource
+        browser_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": "https://discord.com/channels/@me",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "X-Super-Properties": "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiQ2hyb21lIiwiZGV2aWNlIjoiIiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzEyMC4wLjAuMCBTYWZhcmkvNTM3LjM2IiwiYnJvd3Nlcl92ZXJzaW9uIjoiMTIwLjAuMC4wIiwib3NfdmVyc2lvbiI6IjEwIiwicmVmZXJyZXIiOiIiLCJyZWZlcnJpbmdfZG9tYWluIjoiIiwicmVmZXJyZXJfY3VycmVudCI6IiIsInJlZmVycmluZ19kb21haW5fY3VycmVudCI6IiIsInJlbGVhc2VfY2hhbm5lbCI6InN0YWJsZSIsImNsaWVudF9idWlsZF9udW1iZXIiOjI1OTY2NiwiY2xpZW50X2V2ZW50X3NvdXJjZSI6bnVsbH0="
+        }
+        
+        # 3. Update headers (preserve existing auth/content-type if set)
+        # Note: We prioritize browser headers to ensure consistency
+        headers.update(browser_headers)
+        kwargs['headers'] = headers
+        
+        # 4. Call original method
+        return await _original_request(self, route, files=files, form=form, **kwargs)
+
+    # Apply the patch
+    discord.http.HTTPClient.request = patched_request
+    # Also update the property just in case
+    discord.http.HTTPClient.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    print(f"[PATCH] Discord HTTP Client patched with full Chrome headers.")
 
 # Apply the patch immediately
-patch_discord_user_agent()
-# --------------------------------------------------------------
+patch_discord_client()
+# -------------------------------------------------------
 
 from angel_personality import get_system_prompt, angel_personality
 from user_mapping import get_known_user_name
