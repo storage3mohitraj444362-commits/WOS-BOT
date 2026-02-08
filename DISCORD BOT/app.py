@@ -117,6 +117,29 @@ import json
 import logging
 from api_manager import make_request, manager, make_image_request
 
+# --- Cloudflare 1015 Bypass: Monkeypatch Discord User-Agent ---
+# Force discord.py to use a "real browser" User-Agent to avoid Render IP bans.
+import discord.http
+
+def patch_discord_user_agent():
+    """
+    Override the default User-Agent validation and string in discord.py
+    to mimic a standard Windows Chrome browser.
+    """
+    # 1. Define the spoofed User-Agent
+    SPOOFED_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    
+    # 2. Patch the user_agent property correctly
+    # discord.py uses a property for user_agent, so we need to validly override it
+    discord.http.HTTPClient.user_agent = SPOOFED_UA
+    
+    # 3. Log the patch
+    print(f"[PATCH] Discord User-Agent patched to: {SPOOFED_UA}")
+
+# Apply the patch immediately
+patch_discord_user_agent()
+# --------------------------------------------------------------
+
 from angel_personality import get_system_prompt, angel_personality
 from user_mapping import get_known_user_name
 from gift_codes import get_active_gift_codes, build_codes_embed
